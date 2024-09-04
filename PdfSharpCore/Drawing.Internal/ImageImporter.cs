@@ -27,9 +27,10 @@
 // DEALINGS IN THE SOFTWARE.
 #endregion
 
+using PdfSharpCore.Pdf;
+using System;
 using System.Collections.Generic;
 using System.IO;
-using PdfSharpCore.Pdf;
 
 namespace PdfSharpCore.Drawing.Internal
 {
@@ -51,7 +52,7 @@ namespace PdfSharpCore.Drawing.Internal
         {
             _importers.Add(new ImageImporterJpeg());
             _importers.Add(new ImageImporterBmp());
-            // TODO: Special importer for PDF? Or dealt with at a higher level?
+            _importers.Add(new ImageImporterPng());
         }
 
         /// <summary>
@@ -66,6 +67,55 @@ namespace PdfSharpCore.Drawing.Internal
             {
                 helper.Reset();
                 ImportedImage image = importer.ImportImage(helper, document);
+                if (image != null)
+                    return image;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Imports the image.
+        /// </summary>
+        public ImportedImage ImportImage(Stream stream)
+        {
+            long length = -1;
+            try
+            {
+                length = stream.Length;
+            }
+            // ReSharper disable once EmptyGeneralCatchClause
+            catch (Exception)
+            { }
+
+            if (length < -1 || length > Int32.MaxValue)
+                throw new InvalidOperationException($"Image files with a size of {length} bytes are not supported. Use image files smaller than 2 GiB.");
+
+            using (var helper = new StreamReaderHelper(stream, (int)length))
+            {
+                return TryImageImport(helper);
+            }
+        }
+
+        /// <summary>
+        /// Imports the image.
+        /// </summary>
+        public ImportedImage ImportImage(string filename)
+        {
+            var data = File.ReadAllBytes(filename);
+
+            using (var helper = new StreamReaderHelper(data))
+            {
+                return TryImageImport(helper);
+            }
+        }
+
+        ImportedImage TryImageImport(StreamReaderHelper helper)
+        {
+            // Try all registered importers to see if any of them can handle the image.
+            foreach (var importer in _importers)
+            {
+                helper.Reset();
+                var image = importer.ImportImage(helper);
                 if (image != null)
                     return image;
             }

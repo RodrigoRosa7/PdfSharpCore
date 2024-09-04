@@ -27,12 +27,12 @@
 // DEALINGS IN THE SOFTWARE.
 #endregion
 
-using System;
-using System.IO;
 using PdfSharpCore.Internal;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 using PdfSharpCore.Pdf.IO.enums;
+using System;
+using System.IO;
 
 namespace PdfSharpCore.Drawing
 {
@@ -63,11 +63,26 @@ namespace PdfSharpCore.Drawing
 
             if (PdfReader.TestPdfFile(path) == 0)
                 throw new ArgumentException("The specified file has no valid PDF file header.", "path");
-            
+
             _path = path;
             _pathReadAccuracy = accuracy;
             if (pageNumber != 0)
                 PageNumber = pageNumber;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="XPdfForm"/> class from a stream.
+        /// </summary>
+        /// <param name="stream">The stream.</param>
+        internal XPdfForm(Stream stream)
+        {
+            // Create a dummy unique path.
+            _path = "*" + Guid.NewGuid().ToString("B");
+
+            if (PdfReader.TestPdfFile(stream) == 0)
+                throw new ArgumentException("The specified stream has no valid PDF file header.", nameof(stream));
+
+            _externalDocument = PdfReader.Open(stream);
         }
 
         /// <summary>
@@ -92,7 +107,8 @@ namespace PdfSharpCore.Drawing
         /// <param name="stream">The stream.</param>
         /// <param name="password">The password.</param>
         /// <param name="accuracy">Moderate allows for broken references.</param>
-        internal XPdfForm(Stream stream, string password, PdfReadAccuracy accuracy) {
+        internal XPdfForm(Stream stream, string password, PdfReadAccuracy accuracy)
+        {
             // Create a dummy unique path
             _path = "*" + Guid.NewGuid().ToString("B");
 
@@ -138,14 +154,16 @@ namespace PdfSharpCore.Drawing
         /// <summary>
         /// Creates an XPdfForm from a stream and a password.
         /// </summary>
-        public static XPdfForm FromStream(Stream stream, string password) {
+        public static XPdfForm FromStream(Stream stream, string password)
+        {
             return FromStream(stream, password, PdfReadAccuracy.Strict);
         }
 
         /// <summary>
         /// Creates an XPdfForm from a stream and a password.
         /// </summary>
-        public static XPdfForm FromStream(Stream stream, string password, PdfReadAccuracy accuracy) {
+        public static XPdfForm FromStream(Stream stream, string password, PdfReadAccuracy accuracy)
+        {
             return new XPdfForm(stream, password, accuracy);
         }
 

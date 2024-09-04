@@ -205,6 +205,47 @@ namespace PdfSharpCore.Drawing.Internal
             throw new NotImplementedException();
         }
 
+        public ImportedImage ImportImage(StreamReaderHelper stream)
+        {
+            try
+            {
+                stream.CurrentOffset = 0;
+                // Test 2 magic bytes.
+                if (TestFileHeader(stream))
+                {
+                    // Skip over 2 magic bytes.
+                    stream.CurrentOffset += 2;
+
+                    var ipd = new ImagePrivateDataDct(stream.Data, stream.Length);
+                    var ii = new ImportedImageJpeg(this, ipd);
+                    ii.Information.DefaultDPI = 72; // Assume 72 DPI if information not provided in the file.
+                    if (TestJfifHeader(stream, ii))
+                    {
+                        bool colorHeader = false, infoHeader = false;
+
+                        while (MoveToNextHeader(stream))
+                        {
+                            if (TestColorFormatHeader(stream, ii))
+                            {
+                                colorHeader = true;
+                            }
+                            else if (TestInfoHeader(stream, ii))
+                            {
+                                infoHeader = true;
+                            }
+                        }
+                        if (colorHeader && infoHeader)
+                            return ii;
+                    }
+                }
+            }
+            // ReSharper disable once EmptyGeneralCatchClause
+            catch (Exception)
+            {
+            }
+            return null;
+        }
+
         //int GetJpgSizeTestCode(byte[] pData, uint FileSizeLow, out int pWidth, out int pHeight)
         //{
         //    pWidth = -1;
@@ -286,6 +327,13 @@ namespace PdfSharpCore.Drawing.Internal
         /// </summary>
         public ImportedImageJpeg(IImageImporter importer, ImagePrivateDataDct data, PdfDocument document)
             : base(importer, data, document)
+        { }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ImportedImageJpeg"/> class.
+        /// </summary>
+        public ImportedImageJpeg(IImageImporter importer, ImagePrivateDataDct data)
+            : base(importer, data)
         { }
 
         internal override ImageData PrepareImageData()

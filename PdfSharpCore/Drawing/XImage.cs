@@ -27,16 +27,17 @@
 // DEALINGS IN THE SOFTWARE.
 #endregion
 
+using MigraDocCore.DocumentObjectModel.MigraDoc.DocumentObjectModel.Shapes;
+using PdfSharpCore.Drawing.Internal;
+using PdfSharpCore.Pdf.Advanced;
+using PdfSharpCore.Pdf.IO;
+using PdfSharpCore.Pdf.IO.enums;
+using PdfSharpCore.Utils;
+using SixLabors.ImageSharp.PixelFormats;
 using System;
 using System.Diagnostics;
 using System.IO;
-using PdfSharpCore.Pdf.IO;
-using PdfSharpCore.Pdf.Advanced;
-using MigraDocCore.DocumentObjectModel.MigraDoc.DocumentObjectModel.Shapes;
-using PdfSharpCore.Pdf.IO.enums;
 using static MigraDocCore.DocumentObjectModel.MigraDoc.DocumentObjectModel.Shapes.ImageSource;
-using PdfSharpCore.Utils;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace PdfSharpCore.Drawing
 {
@@ -76,6 +77,17 @@ namespace PdfSharpCore.Drawing
         protected XImage()
         { }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="XImage"/> class from an image read by ImageImporter.
+        /// </summary>
+        /// <param name="image">The image.</param>
+        /// <exception cref="System.ArgumentNullException">image</exception>
+        XImage(ImportedImage image)
+        {
+            _importedImage = image ?? throw new ArgumentNullException(nameof(image));
+            Initialize();
+        }
+
         // Useful stuff here: http://stackoverflow.com/questions/350027/setting-wpf-image-source-in-code
         XImage(string path)
         {
@@ -95,7 +107,7 @@ namespace PdfSharpCore.Drawing
         {
             // Create a dummy unique path.
             _path = "*" + Guid.NewGuid().ToString("B");
-            if (ImageSource.ImageSourceImpl == null) 
+            if (ImageSource.ImageSourceImpl == null)
                 ImageSource.ImageSourceImpl = new ImageSharpImageSource<Rgba32>();
             _source = ImageSource.FromStream(_path, stream);
             Initialize();
@@ -131,7 +143,37 @@ namespace PdfSharpCore.Drawing
         {
             if (PdfReader.TestPdfFile(path) > 0)
                 return new XPdfForm(path, accuracy);
-            return new XImage(path);
+
+            var ii = ImageImporter.GetImageImporter();
+            var i = ii.ImportImage(path) ?? throw new InvalidOperationException("Unsupported image format.");
+
+            var image = new XImage(i);
+            image._path = path;
+            return image;
+        }
+
+        /// <summary>
+        /// Creates an image from the specified stream.<br/>
+        /// </summary>
+        /// <param name="stream">The stream containing a BMP, PNG, JPEG, or PDF file.</param>
+        public static XImage FromStream(Stream stream)
+        {
+            if (stream == null)
+                throw new ArgumentNullException(nameof(stream));
+
+            if (!stream.CanSeek)
+                throw new InvalidOperationException("The stream is not seekable. If your stream is not a PDF file use FromBitmapImageStreamThatCannotSeek instead.");
+
+            // Test for PDF requires a seekable stream.
+            if (PdfReader.TestPdfFile(stream) > 0)
+                return new XPdfForm(stream);
+
+            var ii = ImageImporter.GetImageImporter();
+            var i = ii.ImportImage(stream) ?? throw new InvalidOperationException("Unsupported image format.");
+
+            XImage image = new XImage(i);
+            image._stream = stream;
+            return image;
         }
 
         /// <summary>
@@ -181,10 +223,14 @@ namespace PdfSharpCore.Drawing
 
         internal void Initialize()
         {
-            if (_source != null)
+            if (_importedImage != null)
             {
-                //We always get a jpeg from an image source
-                _format = _source.Transparent ? XImageFormat.Png : XImageFormat.Jpeg;
+                // In PDF there are two formats: JPEG and PDF bitmap.
+                if (_importedImage is ImportedImageJpeg)
+                    _format = XImageFormat.Jpeg;
+                else
+                    _format = XImageFormat.Png;
+                return;
             }
         }
 
@@ -357,5 +403,13 @@ namespace PdfSharpCore.Drawing
         /// </summary>
         internal PdfImageTable.ImageSelector _selector;
         private IImageSource _source;
+
+        // ReSharper disable once InconsistentNaming
+        internal ImportedImage _importedImage;
+
+        /// <summary>
+        /// Contains a reference to the original stream if image was created from a stream.
+        /// </summary>
+        internal Stream _stream = null;
     }
 }

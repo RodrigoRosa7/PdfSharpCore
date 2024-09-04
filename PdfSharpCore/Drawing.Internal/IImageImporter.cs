@@ -27,10 +27,10 @@
 // DEALINGS IN THE SOFTWARE.
 #endregion
 
+using PdfSharpCore.Pdf;
 using System;
 using System.Diagnostics;
 using System.IO;
-using PdfSharpCore.Pdf;
 
 namespace PdfSharpCore.Drawing
 {
@@ -45,6 +45,11 @@ namespace PdfSharpCore.Drawing
         ImportedImage ImportImage(StreamReaderHelper stream, PdfDocument document);
 
         /// <summary>
+        /// Imports the image. Returns null if the image importer does not support the format.
+        /// </summary>
+        ImportedImage ImportImage(StreamReaderHelper stream);
+
+        /// <summary>
         /// Prepares the image data needed for the PDF file.
         /// </summary>
         ImageData PrepareImage(ImagePrivateData data);
@@ -54,42 +59,70 @@ namespace PdfSharpCore.Drawing
     /// <summary>
     /// Helper for dealing with Stream data.
     /// </summary>
-    internal class StreamReaderHelper
+    internal class StreamReaderHelper : IDisposable
     {
         internal StreamReaderHelper(Stream stream)
         {
-            // TODO: Are there advantages of GetBuffer()? It should reduce LOH fragmentation.
-            _stream = stream;
-            _stream.Position = 0;
-            if (_stream.Length > int.MaxValue)
+            OriginalStream = stream;
+            OriginalStream.Position = 0;
+            if (OriginalStream.Length > int.MaxValue)
                 throw new ArgumentException("Stream is too large.", "stream");
-            _length = (int)_stream.Length;
-            _data = new byte[_length];
-            _stream.Read(_data, 0, _length);
+            Length = (int)OriginalStream.Length;
+            Data = new byte[Length];
+            OriginalStream.Read(Data, 0, Length);
+        }
+
+        internal StreamReaderHelper(byte[] data)
+        {
+            OriginalStream = null;
+            Data = data;
+            Length = data.Length;
+        }
+
+        internal StreamReaderHelper(Stream stream, int streamLength)
+        {
+            OriginalStream = stream;
+
+            MemoryStream ms = stream as MemoryStream;
+            if (ms == null)
+            {
+                OwnedMemoryStream = ms = streamLength > -1 ? new MemoryStream(streamLength) : new MemoryStream();
+                stream.CopyTo(ms);
+            }
+
+            Data = ms.GetBuffer();
+            Length = (int)ms.Length;
+
+            if (Data.Length > Length)
+            {
+                var tmp = new byte[Length];
+                Buffer.BlockCopy(Data, 0, tmp, 0, Length);
+                Data = tmp;
+            }
         }
 
         internal byte GetByte(int offset)
         {
-            if (_currentOffset + offset >= _length)
+            if (_currentOffset + offset >= Length)
             {
                 Debug.Assert(false);
                 return 0;
             }
-            return _data[_currentOffset + offset];
+            return Data[_currentOffset + offset];
         }
 
         internal ushort GetWord(int offset, bool bigEndian)
         {
             return (ushort)(bigEndian ?
                 GetByte(offset) * 256 + GetByte(offset + 1) :
-                GetByte(offset)       + GetByte(offset + 1) * 256);
+                GetByte(offset) + GetByte(offset + 1) * 256);
         }
 
         internal uint GetDWord(int offset, bool bigEndian)
         {
             return (uint)(bigEndian ?
                 GetWord(offset, true) * 65536 + GetWord(offset + 2, true) :
-                GetWord(offset, false)        + GetWord(offset + 2, false) * 65536);
+                GetWord(offset, false) + GetWord(offset + 2, false) * 65536);
         }
 
         private static void CopyStream(Stream input, Stream output)
@@ -113,11 +146,7 @@ namespace PdfSharpCore.Drawing
         /// <summary>
         /// Gets the original stream.
         /// </summary>
-        public Stream OriginalStream
-        {
-            get { return _stream; }
-        }
-        private readonly Stream _stream;
+        public Stream OriginalStream { get; }
 
         internal int CurrentOffset
         {
@@ -129,21 +158,23 @@ namespace PdfSharpCore.Drawing
         /// <summary>
         /// Gets the data as byte[].
         /// </summary>
-        public byte[] Data
-        {
-            get { return _data; }
-        }
-        private readonly byte[] _data;
+        public byte[] Data { get; }
 
         /// <summary>
         /// Gets the length of Data.
         /// </summary>
-        public int Length
-        {
-            get { return _length; }
-        }
+        public int Length { get; }
 
-        private readonly int _length;
+        /// <summary>
+        /// Gets the owned memory stream. Can be null if no MemoryStream was created.
+        /// </summary>
+        public MemoryStream OwnedMemoryStream { get; private set; }
+
+        public void Dispose()
+        {
+            OwnedMemoryStream?.Dispose();
+            OwnedMemoryStream = null;
+        }
     }
 
     /// <summary>
@@ -162,6 +193,32 @@ namespace PdfSharpCore.Drawing
             _importer = importer;
         }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ImportedImage"/> class.
+        /// </summary>
+        protected ImportedImage(IImageImporter importer, ImagePrivateData data)
+        {
+            Data = data;
+            if (data != null)
+                data.Image = this;
+            //_importer = importer;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ImportedImage"/> class.
+        /// </summary>
+        protected ImportedImage(IImageImporter importer)
+            : this(importer, null)
+        { }
+
+        /// <summary>
+        /// Gets the image data needed for the PDF file.
+        /// </summary>
+        // Data is created on demand without internal caching.
+        public ImageData ImageData(PdfDocumentOptions options)
+        {
+            return PrepareImageData(options);
+        }
 
         /// <summary>
         /// Gets information about the image.
@@ -176,22 +233,27 @@ namespace PdfSharpCore.Drawing
         /// <summary>
         /// Gets a value indicating whether image data for the PDF file was already prepared.
         /// </summary>
-        public bool HasImageData
-        {
-            get { return _imageData != null; }
-        }
+        //public bool HasImageData
+        //{
+        //    get { return _imageData != null; }
+        //}
 
         /// <summary>
         /// Gets the image data needed for the PDF file.
         /// </summary>
-        public ImageData ImageData
-        {
-            get { if(!HasImageData) _imageData = PrepareImageData();  return _imageData; }
-            private set { _imageData = value; }
-        }
-        private ImageData _imageData;
+        //public ImageData ImageData
+        //{
+        //    get { if (!HasImageData) _imageData = PrepareImageData(); return _imageData; }
+        //    private set { _imageData = value; }
+        //}
+        //private ImageData _imageData;
 
         internal virtual ImageData PrepareImageData()
+        {
+            throw new NotImplementedException();
+        }
+
+        internal virtual ImageData PrepareImageData(PdfDocumentOptions options)
         {
             throw new NotImplementedException();
         }
@@ -229,6 +291,7 @@ namespace PdfSharpCore.Drawing
             Palette1,
             Palette4,
             Palette8,
+            Grayscale8,
             RGB24,
             ARGB32
         }
@@ -271,6 +334,11 @@ namespace PdfSharpCore.Drawing
         /// The colors used. Only valid for images with palettes, will be 0 otherwise.
         /// </summary>
         internal uint ColorsUsed;
+
+        /// <summary>
+        /// The default DPI (dots per inch) for images that do not have DPI information.
+        /// </summary>
+        internal double DefaultDPI;
     }
 
     /// <summary>

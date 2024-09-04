@@ -27,9 +27,9 @@
 // DEALINGS IN THE SOFTWARE.
 #endregion
 
-using System;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.Advanced;
+using System;
 
 namespace PdfSharpCore.Drawing.Internal
 {
@@ -163,10 +163,35 @@ namespace PdfSharpCore.Drawing.Internal
             return false;
         }
 
-
         public ImageData PrepareImage(ImagePrivateData data)
         {
             throw new NotImplementedException();
+        }
+
+        public ImportedImage ImportImage(StreamReaderHelper stream)
+        {
+            try
+            {
+                stream.CurrentOffset = 0;
+                if (TestBitmapFileHeader(stream, out var offsetImageData))
+                {
+                    // Note: TestBitmapFileHeader updates stream.CurrentOffset on success.
+
+                    ImagePrivateDataBitmap ipd = new ImagePrivateDataBitmap(stream.Data, stream.Length);
+                    ImportedImage ii = new ImportedImageBitmap(this, ipd);
+                    ii.Information.DefaultDPI = 96; // Assume 96 DPI if information not provided in the file.
+
+                    if (TestBitmapInfoHeader(stream, ii, offsetImageData))
+                    {
+                        return ii;
+                    }
+                }
+            }
+            // ReSharper disable once EmptyGeneralCatchClause
+            catch (Exception)
+            {
+            }
+            return null;
         }
     }
 
@@ -180,6 +205,13 @@ namespace PdfSharpCore.Drawing.Internal
         /// </summary>
         public ImportedImageBitmap(IImageImporter importer, ImagePrivateDataBitmap data, PdfDocument document)
             : base(importer, data, document)
+        { }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ImportedImageBitmap"/> class.
+        /// </summary>
+        public ImportedImageBitmap(IImageImporter importer, ImagePrivateDataBitmap data)
+            : base(importer, data)
         { }
 
         internal override ImageData PrepareImageData()
@@ -210,6 +242,14 @@ namespace PdfSharpCore.Drawing.Internal
         internal ImageDataBitmap(PdfDocument document)
         {
             _document = document;
+        }
+
+        internal ImageDataBitmap(byte[] data, byte[] mask)
+        {
+            Data = data;
+            Length = Data.Length;
+            AlphaMask = mask;
+            AlphaMaskLength = AlphaMask?.Length ?? 0;
         }
 
         /// <summary>
